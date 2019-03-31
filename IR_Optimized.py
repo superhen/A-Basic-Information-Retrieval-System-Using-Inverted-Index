@@ -1,18 +1,20 @@
+import time
 import os
 import pickle
 import re
-from nltk.tokenize import regexp_tokenize
 from nltk.stem import PorterStemmer
 import sys
-from PyQt5.QtWidgets import (QPushButton, QWidget, QLabel, QScrollArea, QLineEdit, QTextEdit, QGridLayout, QApplication)
+from PyQt5.QtWidgets import (QPushButton, QWidget, QLabel, QScrollArea, QLineEdit, QGridLayout, QApplication)
 from PyQt5.QtCore import (QCoreApplication,Qt)
 from PyQt5.QtGui import *
 
 
 class Example(QWidget):
+    __pathList = None
     def __init__(self):
         super().__init__()
         self.initUI()
+        self.__pathList = self.getFilePath()
 
     # output: list of paths. e.g. [path1, path2]
     def getFilePath(self):
@@ -36,10 +38,11 @@ class Example(QWidget):
     # output: list of token pair. e.g. [{token1: path1}, {token2: path1}]
     def tokenization(self, fileContent, filePath):
         tokenList = []
-        tokens = regexp_tokenize(fileContent, pattern='\w+')
+        tokens = fileContent.split()
         for token in tokens:
-            tokenPair = {token: filePath}
-            tokenList.append(tokenPair)
+            if token != "":
+                tokenPair = {token: filePath}
+                tokenList.append(tokenPair)
         return tokenList
 
     # output: list of stemmed token pair
@@ -56,17 +59,16 @@ class Example(QWidget):
     # output: list of all sorted stemmed token pair. e.g. [{token1: path1}, {token1: path2}, {token2: path1}]
     def sortTokens(self):
         allTokenList = []
-        pathList = self.getFilePath()
-        for index in range(len(pathList)):
-            fileContent = self.getFileContent(pathList[index])
+        for index in range(len(self.__pathList))[:100]:
+            fileContent = self.getFileContent(self.__pathList[index])
             tokenList = self.tokenization(fileContent, index)
             newTokenList = self.stemmer(tokenList)
             allTokenList += newTokenList
         sortedToken = sorted(allTokenList, key=lambda k: (list(k.keys())[0], list(k.values())[0]))
-        return sortedToken, pathList
+        return sortedToken
 
     # output: dictionary of inverted index. e.g. {token1: [path1, path2], token2: [path1]}
-    def posting(self, sortedToken, pathList):
+    def posting(self, sortedToken):
         invertedIndex = {}
         for tokenPair in sortedToken:
             token = list(tokenPair.keys())[0]
@@ -74,7 +76,6 @@ class Example(QWidget):
                 invertedIndex[token] = [(tokenPair[token])]
             elif (token in invertedIndex) & (tokenPair[token] not in set(invertedIndex[token])):
                 invertedIndex[token].append(tokenPair[token])
-        invertedIndex['.'] = pathList
         return invertedIndex
 
     # once dump invertedIndex, we can directly load it next time
@@ -93,11 +94,12 @@ class Example(QWidget):
     # output: list of stemmed query tokens. e.g. [queryToken1, queryToken2]
     def queryProcess(self, query):
         queries = []
-        tokens = regexp_tokenize(query, pattern='\w+')
+        tokens = query.split()
         stemmer = PorterStemmer()
         for token in tokens:
             newToken = stemmer.stem(token.lower())
-            queries.append(newToken)
+            if newToken != "":
+                queries.append(newToken)
         return queries
 
     # output: list of matched pathList. e.g. if queryToken1=token1 & queryToken2=token2 then [[path1, path2],[path1]]
@@ -131,17 +133,15 @@ class Example(QWidget):
                 elif result[index1] > posting[index2]:
                     index2 += 1
             result = resultTmp
-        #    result = sorted(list(set(result)), key=lambda k: int(re.findall(r'(\d+)\.txt', k)[0]))
+            # result = sorted(result, key=lambda k: int(re.findall(r'(\d+)\.txt', k)[0]))
         return result
 
     # output: string of combined path. e.g. 'path1 \n path2 \n'
     def getResult(self, query):
         if os.path.isfile('invertedIndex.txt'):
             invertedIndex = self.loadInvertedIndex()
-            pathList = invertedIndex['.']
         else:
-            sortedToken, pathList = self.sortTokens()
-            invertedIndex = self.posting(sortedToken, pathList)
+            invertedIndex = self.posting(self.sortTokens())
             self.dumpInvertedIndex(invertedIndex)
         queryList = query.split(' OR ')
         result = []
@@ -149,24 +149,28 @@ class Example(QWidget):
             queries = self.queryProcess(query)
             matchedPostings = self.postingList(queries, invertedIndex)
             result += self.postingMerge(matchedPostings)
-        # result = sorted(list(set(result)), key=lambda k: int(re.findall(r'(\d+)\.txt', k)[0]))
+        result = sorted(list(set(result)))
         finalResult = '<ol>'
         for index in result:
-            finalResult = finalResult + "<li>Path:<a href='file://" + pathList[index] + "'>" + pathList[index] + '</a></li>'
+            finalResult = finalResult + "<li>Path:<a href='file://" + self.__pathList[index] + "'>" + self.__pathList[index] + '</a></li>'
         finalResult = finalResult + '</ol>'
         return finalResult
 
     # output: string to show paths
     def noResult(self, query):
+        start = time.clock()
         result = self.getResult(query)
+        elapsed = "Searching time: "+'%.4f'%(time.clock() - start)+" s"
         if len(result) == 0:
-            return '<p>No result</p>'
-        return result
+            return 'No result',elapsed
+        return result,elapsed
 
     def initUI(self):
         searchLabel = QLabel('Please input query:')
         searchLabel.setFont(QFont("Arial", 16))
         searchItem = QLineEdit()
+        searchTime = QLineEdit()
+        searchTime.setReadOnly(True)
         btn1 = QPushButton('Search', self)
         btn2 = QPushButton('Clear', self)
         btn3 = QPushButton('Exit', self)
@@ -189,11 +193,14 @@ class Example(QWidget):
         grid.addWidget(btn1, 3, 2, 1, 2)
         grid.addWidget(btn2, 3, 0, 1, 1)
         grid.addWidget(btn3, 3, 5, 1, 1)
-        grid.addWidget(resultScroll, 4, 0, 6, 6)
+        grid.addWidget(resultScroll, 4, 0, 5, 6)
+        grid.addWidget(searchTime, 9, 0, 1, 6)
         self.setLayout(grid)
 
         def searching():
-            searchResult.setText(self.noResult(searchItem.text()))
+            result, elapsed = self.noResult(searchItem.text())
+            searchResult.setText(result)
+            searchTime.setText(elapsed)
             self.repaint()
 
         btn1.clicked.connect(searching)
@@ -201,6 +208,7 @@ class Example(QWidget):
         def clear():
             searchResult.setText('')
             searchItem.setText('')
+            searchTime.setText('')
             self.repaint()
 
         btn2.clicked.connect(clear)
@@ -211,6 +219,7 @@ class Example(QWidget):
 
 
 if __name__ == "__main__":
+
     app = QApplication(sys.argv)
     ex = Example()
     ex.show()
