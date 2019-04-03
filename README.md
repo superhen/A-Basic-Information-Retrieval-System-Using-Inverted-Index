@@ -13,7 +13,7 @@ Wang Xiangchang(G1801101L)
 Date: 29 March 2019
 ```
 
-#### PyQt5 Based GUI
+#### [PyQt5 ](https://pypi.org/project/PyQt5/)Based GUI
 
 ![image-20190404005449915](https://ws3.sinaimg.cn/large/006tKfTcgy1g1pxlvzyqzj30nm0ko754.jpg)
 
